@@ -3,20 +3,20 @@ blueprint:
   description: This blueprint allows the user to define an event that will add an icon, speak an announcement, and/or display a screen with status.  It will optionally do the same for an ending event (View Assist devicealert v 1.0.0)
   domain: automation
   input:
+    satellite_use_all:
+      name: Use All Satellites
+      description: Check this box to use all View Assist Satellites instead of selecting specific entities
+      default: false
+      selector:
+        boolean:
     satellite:
-      name: Satellite
-      description: The View Assist group or individual device entities to display the icon on (example group.viewassist_satellites or sensor.viewassist_living_room)
+      name: Specific Satellites
+      description: The View Assist individual device entities to display the alert on.  Multiple satellite selection acceptable.  Do not use this option if use all option above is enabled! (example sensor.viewassist_living_room)
       selector:
         entity:
           multiple: true
           filter:
-            - domain: sensor
-            - domain: group
-    icon:
-      name: Display Icon
-      description: The icon name as defined in the dashboard to display (example washer) **Note that this MUST be defined in the dashboard to be usable**
-      default: ""
-
+            - integration: view_assist
     start_definitions:
       name: Start Alert Definitions
       description: These options are used for the variables needed for the start condition for the alert
@@ -25,6 +25,8 @@ blueprint:
           name: Start Sensor
           description: The sensor to monitor for changes for starting the alert (example binary_sensor.washer_notification)
           default: ""
+          selector:
+            entity:
         start_sensor_to:
           name: Start Sensor TO condition
           description: The start monitored sensor value TO condition (example on)
@@ -33,6 +35,15 @@ blueprint:
           name: Start Sensor FROM condition (optional)
           description: The monitored start sensor value FROM condition (example off)
           default:
+        start_wait_duration:
+          name: Start Wait Duration
+          description: How long the sensor must be in the desired state before triggering
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
         start_icon:
           name: Start Icon
           description: The icon name as defined in the dashboard to display for start event (example washer) **Note that this MUST be defined in the dashboard to be usable**
@@ -42,8 +53,8 @@ blueprint:
           description: The text to speak for the start event (example Washer is done)
           default: ""
         start_alert:
-          name: Start Alert
-          description: The icon, text, and path to the view for the start event
+          name: Start Alert Variables
+          description: The icon, text, and/or any other VA variables to set for the start event
           default: ""
           selector:
             object:
@@ -55,8 +66,8 @@ blueprint:
               line2: ""
         start_view:
           name: Start View
-          description: The view to display when the start event happens (default viewassist/alert)
-          default: "viewassist/alert"
+          description: The view to display when the start event happens (default /view-assist/alert)
+          default: "/view-assist/alert"
     end_definitions:
       name: End Alert Definitions
       description: These options are used for the variables needed for the end condition for the alert (Optional)
@@ -64,7 +75,9 @@ blueprint:
         end_sensor:
           name: End Sensor
           description: The sensor to monitor for changes for ending the alert (example binary_sensor.washer_notification)
-          default:
+          default: 'sensor.dummy'
+          selector:
+            entity:
         end_sensor_to:
           name: End Sensor TO condition
           description: The monitored end sensor value TO condition (example on)
@@ -73,6 +86,15 @@ blueprint:
           name: End Sensor FROM condition (optional)
           description: The monitored end sensor value FROM condition (example off)
           default:
+        end_wait_duration:
+          name: End Wait Duration
+          description: How long the sensor must be in the desired state before triggering
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
         end_icon:
           name: End Icon
           description: The icon name as defined in the dashboard to display for end event (example washer) **Note that this MUST be defined in the dashboard to be usable**
@@ -83,7 +105,7 @@ blueprint:
           default: ""
         end_alert:
           name: End Alert
-          description: The icon, text, and path to the view for the start event
+          description: The icon, text, and/or any other VA variables to set for the end event
           default: ""
           selector:
             object:
@@ -95,30 +117,38 @@ blueprint:
               line2: ""
         end_view:
           name: End View
-          description: The view to display when the end event happens (default viewassist/alert)
-          default: "viewassist/alert"
-
+          description: The view to display when the end event happens (default /view-assist/alert)
+          default: "/view-assist/alert"
+trigger_variables:
+  end_sensor: !input end_sensor
 triggers:
   - trigger: state
     entity_id:
     - !input start_sensor
+    for: !input start_wait_duration
     from: !input start_sensor_from
     to: !input start_sensor_to
     id: startaction
   - trigger: state
     entity_id:
     - !input end_sensor
+    for: !input end_wait_duration
     from: "on"
     to: "off"
     id: endaction
+    enabled: "{{ end_sensor != 'sensor.dummy' }}"
 conditions: []
 actions:
   - variables:
-      icon: !input icon
       satellite: !input satellite
+      satellite_use_all: !input satellite_use_all
       expanded_satellites: >
-        {% set input_satellites = expand(states|selectattr('entity_id', 'in', satellite)) %}
-        {{ input_satellites | map(attribute='entity_id') | list }}
+        {% if satellite_use_all %}
+          {{ view_assist_entities() }}
+        {% else %}
+          {% set input_satellites = expand(states | selectattr('entity_id', 'in', satellite)) %}
+          {{ input_satellites | map(attribute='entity_id') | list }}
+        {% endif %}
       start_icon: !input start_icon
       start_speech: !input start_speech
       start_alert: !input start_alert
@@ -127,7 +157,6 @@ actions:
       end_speech: !input end_speech
       end_alert: !input end_alert
       end_view: !input end_view
-
   - choose:
       - conditions:
           - condition: trigger
